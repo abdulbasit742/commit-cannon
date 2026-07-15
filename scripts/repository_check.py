@@ -82,6 +82,23 @@ for required in (
     if required not in cli:
         findings.append(f"commit_cannon/cli.py: missing exclusive report/atomic publish contract: {required}")
 
+verify = (ROOT / "commit_cannon" / "verify.py").read_text(encoding="utf-8")
+for required in (
+    "_REPORT_KEYS",
+    "only report schema version 2 is supported",
+    "repository path must not traverse symbolic links",
+    '"for-each-ref", "--format=%(refname)"',
+    '"fsck", "--no-dangling", "--no-progress"',
+    "repository tip does not match the report",
+    "repository must remain remote-free",
+    "repository size changed",
+):
+    if required not in verify:
+        findings.append(f"commit_cannon/verify.py: missing post-publication verification contract: {required}")
+for prohibited in ("subprocess.Popen", "subprocess.run", "write_text(", "unlink(", "rmtree("):
+    if prohibited in verify:
+        findings.append(f"commit_cannon/verify.py: verifier must remain read-only: {prohibited}")
+
 runner = (ROOT / "run.sh").read_text(encoding="utf-8")
 if "python3 -m commit_cannon.cli" not in runner:
     findings.append("run.sh: must delegate to the reviewed Python CLI")
