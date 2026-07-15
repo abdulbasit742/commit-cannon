@@ -1,6 +1,6 @@
 # Reference review
 
-Reviewed on 2026-07-15 before replacing the hosted record-attempt workflow and again while hardening benchmark isolation.
+Reviewed on 2026-07-15 before replacing the hosted record-attempt workflow and again while hardening benchmark isolation and cancellation.
 
 ## 1. git/git
 
@@ -11,6 +11,7 @@ Adopted:
 - avoid force replacement and verify the imported ref
 - isolate test configuration from operator Git configuration
 - fix the object format and record a verified tip object ID
+- treat stream delivery and backend completion as one process lifecycle
 
 Not adopted: marks files, incremental imports, multiple branches, filesystem-access options, or hosted pushes.
 
@@ -22,6 +23,7 @@ Adopted:
 - operate only on a fresh/disposable repository
 - reject ambiguous, non-empty, symlinked, or source-tree destinations
 - treat inherited Git routing/configuration as part of the trust boundary
+- terminate incomplete history operations rather than leaving a half-controlled child process
 
 Not adopted: history filtering, callbacks, remote removal, or package dependencies.
 
@@ -33,9 +35,10 @@ Adopted:
 - visible benchmark parameters and reproducibility metadata
 - timing reports without universal performance claims
 - output files that are explicit artifacts rather than hidden state
+- bounded benchmark execution and controlled diagnostic output
 
 Not adopted: arbitrary shell commands, statistical multi-run orchestration, cache-clearing commands, or external runtime dependencies.
 
 ## Resulting decision
 
-The useful product is a local protocol benchmark, not a hosted commit-count stunt. The current design combines a fixed cap, disposable repository, sanitized Git environment, deterministic SHA-1 history fingerprint, integrity checks, zero remotes, no push path, and exclusive machine-readable reports.
+The useful product is a local protocol benchmark, not a hosted commit-count stunt. The current design combines a fixed cap, disposable repository, sanitized Git environment, deterministic SHA-1 history fingerprint, stream-wide timeout, bounded stderr diagnostics, process-group cleanup, integrity checks, zero remotes, no push path, and exclusive machine-readable reports.
