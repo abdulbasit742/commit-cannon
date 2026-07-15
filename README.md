@@ -10,12 +10,15 @@ This repository **does not push commits, add remotes, force-update branches, or 
 - hard, non-configurable cap: **100,000** commits
 - generated refs are restricted to `benchmark` or `benchmark/...`
 - the source repository and its parent/child directories cannot be used as output
-- an existing non-empty output directory is never overwritten
+- a kept destination must be a new path; existing files and even empty directories are never replaced
+- kept output is built and verified in a hidden sibling staging directory, then published with an atomic no-replace directory rename
+- symlinked output parents are rejected and failed runs leave no final destination or staging residue
 - child Git processes receive an allowlisted environment; caller `GIT_DIR`, work-tree, alternate-object, credential, and global-config settings are not inherited
 - repositories are explicitly initialized with SHA-1 for comparable deterministic fingerprints
 - the operation timeout covers both Python stream production and Git import; a timed-out isolated process group is terminated
 - Git stderr is drained concurrently and retained only in a bounded 64 KiB diagnostic buffer
 - JSON reports are created exclusively and never replace existing files or live inside a kept benchmark repository
+- if final kept-repository publication fails, a newly written report is rolled back
 - no `git push`, remote creation, `--force`, shell execution, or hosted-service target exists in active code
 - `git fsck`, exact commit-count verification, object-format validation, tip-object validation, and zero-remote verification run before success
 
@@ -25,8 +28,9 @@ The old 100-million-commit GitHub record attempt and automatic force-push workfl
 
 - Python 3.11 or newer
 - Git available on `PATH`
+- Linux, macOS, or Windows for atomic kept-repository publication
 
-There are no runtime Python dependencies.
+There are no runtime Python dependencies. On Linux the CLI uses `renameat2(RENAME_NOREPLACE)`; on macOS it uses `renamex_np(RENAME_EXCL)`; Windows rename already refuses an existing destination. Other platforms fail closed for `--keep` instead of falling back to a clobber-prone publish.
 
 ## Run a disposable benchmark
 
@@ -42,7 +46,7 @@ Useful options:
 # Save a new report; existing files are never replaced
 ./run.sh --count 10000 --json benchmark-report.json
 
-# Keep an isolated local repository for inspection
+# Publish a verified isolated repository at a path that does not yet exist
 ./run.sh --count 5000 --keep /tmp/commit-cannon-output
 
 # Include a normal local repack in the measurement
@@ -55,7 +59,7 @@ Useful options:
 ./run.sh --count 2500 --timeout 60
 ```
 
-`--keep` must point to a new or empty non-symlink directory outside this source tree. The generated repository has no remotes. A `--json` path must be new and outside any kept repository. `--timeout` accepts 5–600 seconds.
+`--keep` must point to a **non-existent** path outside this source tree and must not traverse symlinked parents. The CLI creates a private staging repository beside the final path, completes all integrity checks, and only then publishes it without replacing any path that appears concurrently. The generated repository has no remotes. A `--json` path must be new and outside any kept repository. `--timeout` accepts 5–600 seconds.
 
 ## Report fields
 
@@ -72,7 +76,7 @@ The schema-v2 JSON report includes:
 - integrity result
 - remote count, which must remain zero
 - whether repacking was included
-- kept repository path, when requested
+- final kept repository path, when requested
 
 Timing still depends on hardware, filesystem, Git version, caching, and concurrent workloads. Compare reports only in a controlled environment.
 
@@ -89,7 +93,7 @@ python /path/to/commit-cannon/generate.py 100 --branch benchmark/manual \
 git rev-list --count refs/heads/benchmark/manual
 ```
 
-The frontend emits a terminating `done` directive, enforces the same hard cap, and only permits benchmark refs. It does not invoke Git or access the network itself. The standalone pipeline is operator-managed; use the CLI when you need the enforced timeout and integrity checks.
+The frontend emits a terminating `done` directive, enforces the same hard cap, and only permits benchmark refs. It does not invoke Git or access the network itself. The standalone pipeline is operator-managed; use the CLI when you need the enforced timeout, integrity checks, and atomic kept-output publication.
 
 ## Verification
 
@@ -102,7 +106,7 @@ python3 scripts/repository_check.py
 ./run.sh --count 25 --json benchmark-report.json
 ```
 
-The current suite contains 17 regression tests, including hostile Git-environment, report-clobber, and stalled-stream timeout cases.
+The current suite contains 23 regression tests, including hostile Git-environment, report-clobber, stalled-stream timeout, publish-race, symlink-parent, cleanup, and report-rollback cases.
 
 ## Design references
 
