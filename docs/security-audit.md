@@ -7,62 +7,44 @@
 - aggressive repack as an unavoidable step
 - unsupported record-holder and throughput claims
 - no validation, tests, integrity check, timeout, or result artifact
-- inheritance of caller-controlled `GIT_DIR`, `GIT_WORK_TREE`, alternate object stores, global Git config, and related routing variables
+- inheritance of caller-controlled Git routing/configuration variables
 - JSON reports silently replacing existing files
-- a timeout that started only after Python finished writing the complete fast-import stream
-- undrained child stderr that could block a long-running import
-- direct writes into the final `--keep` directory, which could expose partial Git state after failure or interruption
-- acceptance of an existing empty keep directory, which made no-replace publication impossible
-- no supported way to re-check a kept repository after publication or transfer
-- reliance on one timing sample as if it represented stable performance
+- timeout coverage beginning only after stream production completed
+- undrained child stderr and partial kept-repository publication
+- no supported post-publication verification
+- reliance on one timing sample as stable performance
+- ad-hoc report comparison that could mix different machines, workloads, runtimes, or noisy samples
 
 ## Current controls
 
 - 1,000-commit default and immutable 100,000-commit per-run hard cap
-- repeated suites allow 2–9 measured samples and 0–3 warmups
-- repeated suites enforce a 300,000-commit cumulative ceiling across measured and discarded runs
-- the suite command is disposable-only and exposes no keep, remote, or push option
-- benchmark-only ref namespace
-- disposable empty repository by default
-- a kept destination must be new, outside the source tree, and must not traverse symlinked parents
-- kept repositories are built and verified in a private sibling staging directory
-- Linux `renameat2(RENAME_NOREPLACE)`, macOS `renamex_np(RENAME_EXCL)`, or Windows no-replace rename atomically publishes the final directory
-- unsupported platforms fail closed for `--keep`
-- destination races never replace an existing path
-- benchmark or publication failure removes staging output and leaves no final destination
-- a report created before final publication is rolled back if publication fails
-- minimal child-process environment with system/global Git config disabled
-- explicit SHA-1 initialization for comparable deterministic tip fingerprints
-- no remote is created; remote count is verified as zero
-- `fast-import --done` plus a terminating `done` directive
-- exact `rev-list --count`, `git fsck`, object-format, tip-OID, and commit-object verification
-- bounded 5–600 second operation timeout covering stream production and Git import
-- isolated fast-import process group termination on timeout
-- concurrent stderr draining with a bounded 64 KiB diagnostic buffer
-- no shell interpolation or `shell=True`
-- optional, non-aggressive local repack
-- reports use exclusive creation, refuse existing paths, and cannot be written inside a kept repository
-- suite reports also use exclusive creation and include every measured sample
-- a suite fails if Git version or deterministic tip changes between measured runs
-- read-only post-publication verification rejects unknown report fields, oversized reports, report symlinks, repository symlink traversal, unexpected refs, changed count/tip/size, non-SHA-1 objects, and added remotes
-- the verifier re-runs `git fsck` and uses the same sanitized Git environment as the benchmark
-- source scanner locks the cap, environment allowlist, SHA-1 fingerprint, timeout, exclusive-report, atomic-publish, read-only verifier, and statistical-suite contracts
-- CI uses only small local histories and verifies a real suite, staged keep publication, and report re-verification
+- 2–9 measured samples, 0–3 warmups, and a 300,000-commit suite ceiling
+- benchmark-only refs and disposable repositories by default
+- sanitized child Git environment, fixed SHA-1 format, deterministic tip verification, zero remotes, `git fsck`, exact commit count, and bounded timeout/process cleanup
+- no shell interpolation, hosted push path, remote creation, or force update
+- exclusive report creation and atomic no-replace publication for kept repositories
+- read-only post-publication verification of report schema, refs, tip, object format, size, integrity, and remote count
+- suite reports retain individual samples, robust central tendency, dispersion, and environment metadata
+- report comparison accepts only regular non-symlink JSON files up to 1 MB
+- baseline and candidate must match workload, Git version, object format, OS/release/architecture, Python version, CPU count, measured runs, warmups, and repack setting
+- both reports must have passed integrity and have sample counts matching measured runs
+- configurable slowdown and coefficient-of-variation thresholds are bounded to 0–100%
+- comparator exit codes are stable: 0 pass, 1 regression, 2 invalid/incomparable/noisy
+- comparator writes nothing, invokes no subprocess, and performs no network or repository operation
+- source scanner locks generation, publication, verification, suite, and comparator contracts
+- CI uses only small local histories
 
 ## Residual risks
 
-- 100,000 commits can still consume meaningful CPU, memory, and disk on a small machine before the configured timeout.
-- A permitted 300,000-commit suite can consume more aggregate resources than one benchmark; the operator remains responsible for choosing a suitable count and quiet environment.
-- Timing results depend on hardware, filesystem, Git version, caching, thermal state, and concurrent workloads. Repeated samples expose variability but do not remove it.
-- Coefficient of variation is descriptive, not a statistical significance test or performance-regression verdict.
-- Keeping the generated repository transfers cleanup responsibility to the operator.
-- `generate.py` can be piped into another local Git repository; operators must use a disposable repository and manage that pipeline's lifetime themselves.
-- Parent directories may be on unusual filesystems or mounts; the platform primitive can reject publication rather than weakening no-replace semantics.
-- Filesystem or power failure after the atomic rename may still require normal filesystem recovery; this tool does not call system-wide sync operations.
-- The schema-v2 report is not cryptographically signed. Anyone able to alter both a repository and its report can create a new matching pair; the verifier detects inconsistency, not authorship.
-- Exact `.git` size comparison intentionally rejects benign post-publication repacks or maintenance because those change the artifact represented by the report.
+- 100,000 commits and a 300,000-commit suite can still consume meaningful local resources.
+- Timing depends on hardware, filesystem, caching, thermal state, power policy, and background work.
+- A coefficient-of-variation limit and median slowdown threshold are operational heuristics, not a significance test or proof of causality.
+- Requiring exact environment metadata prevents misleading comparisons but can also reject legitimately useful cross-version investigations; those should be analyzed manually rather than forced through the CI gate.
+- The comparator trusts correctly formed report contents. Reports are not cryptographically signed, so authenticity still requires a trusted artifact channel.
+- Keeping generated repositories transfers cleanup responsibility to the operator.
+- Exact `.git` size verification rejects benign repacks because they alter the represented artifact.
 - This repository has no license file.
 
 ## Explicit non-goals
 
-The project must not add hosted-service pushes, force updates, remote creation, configurable hard-cap bypasses, automated record attempts, arbitrary benchmark setup commands, privileged cache-clearing operations, or instructions designed to burden third-party infrastructure.
+The project must not add hosted-service pushes, force updates, remote creation, hard-cap bypasses, automated record attempts, arbitrary benchmark setup commands, privileged cache-clearing operations, or instructions designed to burden third-party infrastructure.
