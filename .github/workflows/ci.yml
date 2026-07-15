@@ -41,8 +41,12 @@ jobs:
           from pathlib import Path
 
           report = json.loads(Path("benchmark-report.json").read_text(encoding="utf-8"))
+          assert report["schema_version"] == 2
           assert report["count"] == 25
           assert report["integrity"] == "passed"
           assert report["remote_count"] == 0
+          assert report["object_format"] == "sha1"
+          assert len(report["tip_oid"]) == 40
           assert report["kept_repository"] is None
           PY
+          test "$(./run.sh --count 1 --json benchmark-report.json >/dev/null 2>&1; echo $?)" = "2"
