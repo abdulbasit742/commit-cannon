@@ -7,7 +7,8 @@ This repository **does not push commits, add remotes, force-update branches, or 
 ## Safety contract
 
 - default: **1,000** commits
-- hard, non-configurable cap: **100,000** commits
+- hard, non-configurable per-run cap: **100,000** commits
+- statistical suites are capped at **300,000 cumulative generated commits**
 - generated refs are restricted to `benchmark` or `benchmark/...`
 - the source repository and its parent/child directories cannot be used as output
 - a kept destination must be a new path; existing files and even empty directories are never replaced
@@ -62,7 +63,23 @@ Useful options:
 
 `--keep` must point to a **non-existent** path outside this source tree and must not traverse symlinked parents. The CLI creates a private staging repository beside the final path, completes all integrity checks, and only then publishes it without replacing any path that appears concurrently. The generated repository has no remotes. A `--json` path must be new and outside any kept repository. `--timeout` accepts 5–600 seconds.
 
-## Report fields
+## Run a repeated statistical suite
+
+A single timing can be noisy. Run bounded disposable warmups and repeated samples with:
+
+```bash
+python -m commit_cannon.suite \
+  --count 5000 \
+  --warmups 1 \
+  --runs 5 \
+  --json suite-report.json
+```
+
+The suite accepts 2–9 measured runs and 0–3 warmups. The product of commits per run and total runs must not exceed 300,000. It has no keep, remote, or push option. The schema-v1 report includes every sample, median/mean/min/max elapsed time, population standard deviation, coefficient of variation, median throughput, deterministic tip IDs, and basic machine/runtime metadata.
+
+Prefer the median and treat a high coefficient of variation as an unstable environment. Compare reports only when parameters, Git version, and relevant machine/filesystem conditions are equivalent. See [docs/statistical-suites.md](docs/statistical-suites.md).
+
+## Single-run report fields
 
 The schema-v2 JSON report includes:
 
@@ -118,13 +135,14 @@ PYTHONWARNINGS=error::ResourceWarning \
 bash -n run.sh
 python3 scripts/repository_check.py
 ./run.sh --count 25 --json benchmark-report.json
+python3 -m commit_cannon.suite --count 5 --runs 3 --warmups 1 --json suite-report.json
 ```
 
-The current suite contains 30 regression tests, including hostile Git-environment, report-clobber, stalled-stream timeout, publish-race, symlink-parent, cleanup, report-rollback, report-schema, tampered-tip/count, added-remote, and post-publication size-change cases.
+The current suite contains 36 regression tests, including hostile Git-environment, report-clobber, stalled-stream timeout, publish-race, symlink-parent, cleanup, report-rollback, report-schema, tampered-tip/count, added-remote, post-publication size-change, suite workload-cap, deterministic-tip, Git-version, warmup, statistics, and exclusive-suite-report cases.
 
 ## Design references
 
-See [docs/reference-review.md](docs/reference-review.md) for the reviewed Git, git-filter-repo, and hyperfine patterns. See [docs/security-audit.md](docs/security-audit.md) for the changed-area risk assessment.
+See [docs/reference-review.md](docs/reference-review.md) for the reviewed Git, git-filter-repo, Hyperfine, pytest-benchmark, and Criterion patterns. See [docs/security-audit.md](docs/security-audit.md) for the changed-area risk assessment.
 
 ## License
 
