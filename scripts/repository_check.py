@@ -53,9 +53,14 @@ for required in (
     '"init", "--quiet", "--object-format=sha1"',
     '"rev-parse", "--show-object-format"',
     "tip_oid",
+    "start_new_session",
+    "_terminate_process",
+    "writer_thread",
+    "stderr_thread",
+    "while streaming or importing",
 ):
     if required not in benchmark:
-        findings.append(f"commit_cannon/benchmark.py: missing sandbox/fingerprint contract: {required}")
+        findings.append(f"commit_cannon/benchmark.py: missing sandbox/fingerprint/timeout contract: {required}")
 
 cli = (ROOT / "commit_cannon" / "cli.py").read_text(encoding="utf-8")
 for required in ("os.O_EXCL", "O_NOFOLLOW", "report path already exists", "outside the kept benchmark repository"):
