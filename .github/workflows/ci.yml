@@ -50,6 +50,24 @@ jobs:
           assert report["kept_repository"] is None
           PY
           test "$(./run.sh --count 1 --json benchmark-report.json >/dev/null 2>&1; echo $?)" = "2"
+      - name: Smoke-test bounded statistical suite
+        run: |
+          python -m commit_cannon.suite --count 5 --runs 3 --warmups 1 --json suite-report.json > /tmp/commit-cannon-suite.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("suite-report.json").read_text(encoding="utf-8"))
+          assert report["schema_version"] == 1
+          assert report["benchmark_schema_version"] == 2
+          assert report["runs"] == 3
+          assert report["warmups"] == 1
+          assert report["total_generated_commits"] == 20
+          assert report["integrity"] == "passed"
+          assert len(report["samples"]) == 3
+          assert len({sample["tip_oid"] for sample in report["samples"]}) == 1
+          PY
+          test "$(python -m commit_cannon.suite --count 100000 --runs 3 --warmups 1 >/dev/null 2>&1; echo $?)" = "2"
       - name: Smoke-test atomic kept repository publication
         run: |
           publish_root="$(mktemp -d)"
