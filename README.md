@@ -21,6 +21,7 @@ This repository **does not push commits, add remotes, force-update branches, or 
 - if final kept-repository publication fails, a newly written report is rolled back
 - no `git push`, remote creation, `--force`, shell execution, or hosted-service target exists in active code
 - `git fsck`, exact commit-count verification, object-format validation, tip-object validation, and zero-remote verification run before success
+- a kept repository can be re-verified later from its schema-v2 report through a read-only verifier
 
 The old 100-million-commit GitHub record attempt and automatic force-push workflow have been removed. Do not use this project to create abusive repository histories or impose load on a third-party service.
 
@@ -80,6 +81,19 @@ The schema-v2 JSON report includes:
 
 Timing still depends on hardware, filesystem, Git version, caching, and concurrent workloads. Compare reports only in a controlled environment.
 
+## Re-verify a kept repository
+
+A report is useful only if the published repository still matches it. Re-run the read-only checks later with:
+
+```bash
+python -m commit_cannon.verify benchmark-report.json \
+  --repository /tmp/commit-cannon-output
+```
+
+When `--repository` is omitted, the verifier uses the report's `kept_repository` value. It fails closed on unknown or missing report fields, symbolic-link paths, an unexpected ref, changed commit count, changed tip object ID, non-SHA-1 objects, added remotes, failed `git fsck`, or a changed `.git` size. It does not write to the report or repository.
+
+The verifier confirms consistency and accidental/post-publication changes; it is not a cryptographic signature and does not prove who produced the report.
+
 ## Stream frontend
 
 `generate.py` remains available for testing Git's import protocol directly:
@@ -106,7 +120,7 @@ python3 scripts/repository_check.py
 ./run.sh --count 25 --json benchmark-report.json
 ```
 
-The current suite contains 23 regression tests, including hostile Git-environment, report-clobber, stalled-stream timeout, publish-race, symlink-parent, cleanup, and report-rollback cases.
+The current suite contains 30 regression tests, including hostile Git-environment, report-clobber, stalled-stream timeout, publish-race, symlink-parent, cleanup, report-rollback, report-schema, tampered-tip/count, added-remote, and post-publication size-change cases.
 
 ## Design references
 
