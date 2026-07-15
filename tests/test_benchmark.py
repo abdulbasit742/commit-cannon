@@ -4,11 +4,17 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from commit_cannon.benchmark import BenchmarkError, _safe_environment, run_benchmark
+from commit_cannon.benchmark import (
+    BenchmarkError,
+    _import_stream,
+    _safe_environment,
+    run_benchmark,
+)
 from commit_cannon.cli import main
 
 
@@ -61,6 +67,31 @@ class BenchmarkTests(unittest.TestCase):
                 result = run_benchmark(count=3, timeout_seconds=30)
             self.assertEqual(result.count, 3)
             self.assertEqual(sorted(path.relative_to(outside) for path in outside.rglob("*")), before)
+
+    def test_stream_timeout_covers_python_writer_and_git_import(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            subprocess.run(
+                ["git", "init", "--quiet", "--object-format=sha1"],
+                cwd=repository,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            def stalled_writer(*_args: object, **_kwargs: object) -> None:
+                time.sleep(0.25)
+
+            started = time.monotonic()
+            with patch("commit_cannon.benchmark.write_fast_import_stream", side_effect=stalled_writer):
+                with self.assertRaisesRegex(BenchmarkError, "while streaming or importing"):
+                    _import_stream(
+                        repository,
+                        count=1,
+                        branch="benchmark",
+                        timeout_seconds=0.05,
+                    )
+            self.assertLess(time.monotonic() - started, 1.0)
 
     def test_kept_repository_has_no_remote(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
