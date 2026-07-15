@@ -50,3 +50,27 @@ jobs:
           assert report["kept_repository"] is None
           PY
           test "$(./run.sh --count 1 --json benchmark-report.json >/dev/null 2>&1; echo $?)" = "2"
+      - name: Smoke-test atomic kept repository publication
+        run: |
+          publish_root="$(mktemp -d)"
+          destination="$publish_root/verified-repository"
+          report="$publish_root/kept-report.json"
+          ./run.sh --count 9 --branch benchmark/ci --keep "$destination" --json "$report" >/tmp/commit-cannon-kept.json
+          test -d "$destination/.git"
+          test -f "$report"
+          test -z "$(git -C "$destination" remote)"
+          test "$(git -C "$destination" rev-list --count refs/heads/benchmark/ci)" = "9"
+          test -z "$(find "$publish_root" -maxdepth 1 -name '.commit-cannon-stage-*' -print -quit)"
+          python - "$destination" "$report" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          destination = str(Path(sys.argv[1]).resolve())
+          report = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+          assert report["kept_repository"] == destination
+          assert report["integrity"] == "passed"
+          assert report["remote_count"] == 0
+          PY
+          mkdir "$publish_root/existing-empty"
+          test "$(./run.sh --count 1 --keep "$publish_root/existing-empty" >/dev/null 2>&1; echo $?)" = "2"
