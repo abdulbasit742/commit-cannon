@@ -1,41 +1,99 @@
-# commit-cannon
+# commit-cannon local benchmark
 
-Experiment to push a single branch past **100,000,000 commits** on GitHub,
-beating the current known record (rvfet/committed, ~100K commits/min).
+A bounded, reproducible benchmark for Git's `fast-import` backend.
 
-## How it works
+This repository **does not push commits, add remotes, force-update branches, or target hosted Git services**. Every benchmark runs inside a new disposable local repository, verifies the generated history, records machine-readable results, and removes the temporary repository unless you explicitly keep it.
 
-`git commit` in a loop tops out at a few hundred commits/sec because it
-forks a process per commit. Instead we use **`git fast-import`**, which
-streams commit objects directly into a packfile. `generate.py` emits the
-stream, fast-import ingests it, and we push **once** at the end so the
-network is never the bottleneck.
+## Safety contract
 
-All commits point at the same empty tree, so disk stays tiny and the only
-real cost is object headers.
+- default: **1,000** commits
+- hard, non-configurable cap: **100,000** commits
+- generated refs are restricted to `benchmark` or `benchmark/...`
+- the source repository and its parent/child directories cannot be used as output
+- an existing non-empty output directory is never overwritten
+- no `git push`, remote creation, `--force`, shell execution, or hosted-service target exists in active code
+- `git fsck` and exact commit-count verification run before a result is reported
 
-## Run
+The old 100-million-commit GitHub record attempt and automatic force-push workflow have been removed. Do not use this project to create abusive repository histories or impose load on a third-party service.
+
+## Requirements
+
+- Python 3.11 or newer
+- Git available on `PATH`
+
+There are no runtime Python dependencies.
+
+## Run a disposable benchmark
 
 ```bash
-git clone https://github.com/abdulbasit742/commit-cannon
-cd commit-cannon
-chmod +x run.sh
-./run.sh 1000000        # one million commits this batch
+./run.sh --count 1000
 ```
 
-Run it in batches (each batch chains onto the last via `from`) and keep
-going until `git rev-list --count master` clears 100M.
+The command prints a JSON report and deletes the generated repository after verification.
 
-## Speed tips
+Useful options:
 
-- Run on your Linux box, fast NVMe disk = fast packfile writes.
-- `flush_every` in generate.py controls stream buffering; raise it on big RAM.
-- Bottleneck is `git repack` at the end, not generation. Repack once per
-  big batch, not per million.
-- This is pure I/O, no GPU needed.
+```bash
+# Save the report
+./run.sh --count 10000 --json benchmark-report.json
 
-## Warning
+# Keep an isolated local repository for inspection
+./run.sh --count 5000 --keep /tmp/commit-cannon-output
 
-GitHub Support has deleted record-attempt repos before (csm10495's 22M repo
-was nuked). A clone also becomes painfully slow past a few million commits.
-This is a stunt repo, do not put anything real here.
+# Include a normal local repack in the measurement
+./run.sh --count 5000 --repack
+
+# Use a nested benchmark-only ref
+./run.sh --count 2500 --branch benchmark/python-3.12
+```
+
+`--keep` must point to a new or empty directory outside this source tree. The generated repository has no remotes.
+
+## Report fields
+
+The JSON report includes:
+
+- requested and verified commit count
+- benchmark branch
+- start/finish timestamps
+- elapsed seconds and commits per second
+- `.git` directory size
+- Git version
+- integrity result
+- remote count, which must remain zero
+- whether repacking was included
+- kept repository path, when requested
+
+## Stream frontend
+
+`generate.py` remains available for testing Git's import protocol directly:
+
+```bash
+mkdir /tmp/fast-import-test
+cd /tmp/fast-import-test
+git init --quiet
+python /path/to/commit-cannon/generate.py 100 --branch benchmark/manual \
+  | git fast-import --done --quiet
+git rev-list --count refs/heads/benchmark/manual
+```
+
+The frontend emits a terminating `done` directive, enforces the same hard cap, and only permits benchmark refs. It does not invoke Git or access the network itself.
+
+## Verification
+
+```bash
+python3 -m compileall -q commit_cannon generate.py scripts tests
+PYTHONWARNINGS=error::ResourceWarning \
+  python3 -m unittest discover -s tests -p 'test_*.py' -v
+bash -n run.sh
+python3 scripts/repository_check.py
+./run.sh --count 25 --json benchmark-report.json
+```
+
+## Design references
+
+See [docs/reference-review.md](docs/reference-review.md) for the reviewed Git, git-filter-repo, and hyperfine patterns. See [docs/security-audit.md](docs/security-audit.md) for the changed-area risk assessment.
+
+## License
+
+No license file is currently present. Do not assume permission to redistribute this code outside the rights granted by applicable law.
