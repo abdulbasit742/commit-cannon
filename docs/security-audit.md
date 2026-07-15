@@ -14,10 +14,14 @@
 - direct writes into the final `--keep` directory, which could expose partial Git state after failure or interruption
 - acceptance of an existing empty keep directory, which made no-replace publication impossible
 - no supported way to re-check a kept repository after publication or transfer
+- reliance on one timing sample as if it represented stable performance
 
 ## Current controls
 
-- 1,000-commit default and immutable 100,000-commit hard cap
+- 1,000-commit default and immutable 100,000-commit per-run hard cap
+- repeated suites allow 2–9 measured samples and 0–3 warmups
+- repeated suites enforce a 300,000-commit cumulative ceiling across measured and discarded runs
+- the suite command is disposable-only and exposes no keep, remote, or push option
 - benchmark-only ref namespace
 - disposable empty repository by default
 - a kept destination must be new, outside the source tree, and must not traverse symlinked parents
@@ -38,15 +42,19 @@
 - no shell interpolation or `shell=True`
 - optional, non-aggressive local repack
 - reports use exclusive creation, refuse existing paths, and cannot be written inside a kept repository
+- suite reports also use exclusive creation and include every measured sample
+- a suite fails if Git version or deterministic tip changes between measured runs
 - read-only post-publication verification rejects unknown report fields, oversized reports, report symlinks, repository symlink traversal, unexpected refs, changed count/tip/size, non-SHA-1 objects, and added remotes
 - the verifier re-runs `git fsck` and uses the same sanitized Git environment as the benchmark
-- source scanner locks the cap, environment allowlist, SHA-1 fingerprint, timeout, exclusive-report, atomic-publish, and read-only verifier contracts
-- CI uses only small local histories and verifies a real staged keep publication and report re-verification
+- source scanner locks the cap, environment allowlist, SHA-1 fingerprint, timeout, exclusive-report, atomic-publish, read-only verifier, and statistical-suite contracts
+- CI uses only small local histories and verifies a real suite, staged keep publication, and report re-verification
 
 ## Residual risks
 
 - 100,000 commits can still consume meaningful CPU, memory, and disk on a small machine before the configured timeout.
-- Timing results depend on hardware, filesystem, Git version, caching, and concurrent workloads.
+- A permitted 300,000-commit suite can consume more aggregate resources than one benchmark; the operator remains responsible for choosing a suitable count and quiet environment.
+- Timing results depend on hardware, filesystem, Git version, caching, thermal state, and concurrent workloads. Repeated samples expose variability but do not remove it.
+- Coefficient of variation is descriptive, not a statistical significance test or performance-regression verdict.
 - Keeping the generated repository transfers cleanup responsibility to the operator.
 - `generate.py` can be piped into another local Git repository; operators must use a disposable repository and manage that pipeline's lifetime themselves.
 - Parent directories may be on unusual filesystems or mounts; the platform primitive can reject publication rather than weakening no-replace semantics.
@@ -57,4 +65,4 @@
 
 ## Explicit non-goals
 
-The project must not add hosted-service pushes, force updates, remote creation, configurable hard-cap bypasses, automated record attempts, or instructions designed to burden third-party infrastructure.
+The project must not add hosted-service pushes, force updates, remote creation, configurable hard-cap bypasses, automated record attempts, arbitrary benchmark setup commands, privileged cache-clearing operations, or instructions designed to burden third-party infrastructure.
