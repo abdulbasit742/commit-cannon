@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,7 +12,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .stream import DEFAULT_BRANCH, validate_branch, validate_count, write_fast_import_stream
 
@@ -31,6 +32,8 @@ class BenchmarkResult:
     commits_per_second: float
     repository_size_bytes: int
     git_version: str
+    object_format: str
+    tip_oid: str
     integrity: str
     remote_count: int
     repacked: bool
@@ -43,16 +46,30 @@ class BenchmarkResult:
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
 
-def _safe_environment() -> dict[str, str]:
-    env = os.environ.copy()
+_ENV_ALLOWLIST = ("PATH", "PATHEXT", "SYSTEMROOT", "COMSPEC", "WINDIR", "TMP", "TEMP", "TMPDIR")
+
+
+def _safe_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return a minimal deterministic environment for child Git processes.
+
+    Git repository-routing variables, alternate object stores, global config,
+    credential helpers, and hooks inherited from the caller must not escape the
+    disposable benchmark boundary.
+    """
+
+    parent = os.environ if source is None else source
+    env = {key: parent[key] for key in _ENV_ALLOWLIST if parent.get(key)}
     env.update(
         {
             "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_AUTHOR_NAME": "commit-cannon",
             "GIT_AUTHOR_EMAIL": "benchmark@example.invalid",
             "GIT_COMMITTER_NAME": "commit-cannon",
             "GIT_COMMITTER_EMAIL": "benchmark@example.invalid",
+            "LC_ALL": "C",
+            "LANG": "C",
         }
     )
     return env
@@ -96,8 +113,8 @@ def _validate_keep_path(path: Path, source_root: Path) -> Path:
     if destination.exists():
         if not destination.is_dir():
             raise BenchmarkError("kept repository path must be a directory")
-        if any(destination.iterdir()):
-            raise BenchmarkError("kept repository directory must be empty")
+        if destination.is_symlink() or any(destination.iterdir()):
+            raise BenchmarkError("kept repository directory must be empty and not a symbolic link")
     else:
         destination.mkdir(parents=True)
     return destination
@@ -154,7 +171,7 @@ def run_benchmark(
 
     count = validate_count(count)
     branch = validate_branch(branch)
-    if not isinstance(timeout_seconds, int) or timeout_seconds < 5 or timeout_seconds > 600:
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 5 <= timeout_seconds <= 600:
         raise ValueError("timeout_seconds must be between 5 and 600")
 
     source_root = (source_root or Path.cwd()).resolve()
@@ -176,7 +193,7 @@ def run_benchmark(
     started = time.perf_counter()
 
     try:
-        _run_git(["init", "--quiet"], repo, timeout_seconds)
+        _run_git(["init", "--quiet", "--object-format=sha1"], repo, timeout_seconds)
         remotes_before = _run_git(["remote"], repo, timeout_seconds)
         if remotes_before:
             raise BenchmarkError("benchmark repository unexpectedly contains a remote")
@@ -189,6 +206,14 @@ def run_benchmark(
             raise BenchmarkError(f"expected {count} commits but imported {imported_count}")
 
         _run_git(["fsck", "--no-dangling", "--no-progress"], repo, timeout_seconds)
+        object_format = _run_git(["rev-parse", "--show-object-format"], repo, timeout_seconds)
+        if object_format != "sha1":
+            raise BenchmarkError(f"expected sha1 object format but found {object_format}")
+        tip_oid = _run_git(["rev-parse", "--verify", ref], repo, timeout_seconds)
+        if not re.fullmatch(r"[0-9a-f]{40}", tip_oid):
+            raise BenchmarkError("benchmark tip is not a canonical SHA-1 object ID")
+        if _run_git(["cat-file", "-t", tip_oid], repo, timeout_seconds) != "commit":
+            raise BenchmarkError("benchmark ref does not resolve to a commit")
         if repack:
             _run_git(["repack", "-adq"], repo, timeout_seconds)
 
@@ -202,7 +227,7 @@ def run_benchmark(
         size = _directory_size(repo / ".git")
 
         return BenchmarkResult(
-            schema_version=1,
+            schema_version=2,
             count=count,
             branch=branch,
             started_at=started_wall.isoformat(),
@@ -211,6 +236,8 @@ def run_benchmark(
             commits_per_second=round(count / elapsed, 3) if elapsed else 0.0,
             repository_size_bytes=size,
             git_version=git_version,
+            object_format=object_format,
+            tip_oid=tip_oid,
             integrity="passed",
             remote_count=0,
             repacked=repack,
