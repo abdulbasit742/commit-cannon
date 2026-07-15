@@ -1,53 +1,41 @@
 # Reference review
 
-Reviewed on 2026-07-15 before replacing the hosted record-attempt workflow.
+Reviewed on 2026-07-15 before replacing the hosted record-attempt workflow and again while hardening benchmark isolation.
 
 ## 1. git/git
-
-Relevant source: `Documentation/git-fast-import.adoc`.
 
 Adopted:
 
 - treat `fast-import` as a backend fed by a validated frontend
-- initialize an empty repository before import
-- terminate the stream with `done` and invoke `fast-import --done`
-- avoid `--force`, which Git documents as allowing modified branches to be replaced even when commits would be lost
-- verify the imported ref after the stream is complete
+- initialize an empty repository before import and terminate with `done`
+- avoid force replacement and verify the imported ref
+- isolate test configuration from operator Git configuration
+- fix the object format and record a verified tip object ID
 
-Not adopted:
-
-- unsafe stream features, marks files, incremental import, multiple branches, or filesystem-access options
+Not adopted: marks files, incremental imports, multiple branches, filesystem-access options, or hosted pushes.
 
 ## 2. newren/git-filter-repo
 
-Relevant source: `README.md` and its safety rationale for history rewriting.
-
 Adopted:
 
-- fail closed around destructive history operations
-- operate on a disposable/fresh repository rather than the working repository
-- reject ambiguous or unsafe destinations
-- keep the implementation as a small, inspectable Python frontend
+- fail closed around history-changing operations
+- operate only on a fresh/disposable repository
+- reject ambiguous, non-empty, symlinked, or source-tree destinations
+- treat inherited Git routing/configuration as part of the trust boundary
 
-Not adopted:
-
-- history filtering, rewriting callbacks, remote removal logic, or filter-repo dependencies
+Not adopted: history filtering, callbacks, remote removal, or package dependencies.
 
 ## 3. sharkdp/hyperfine
 
-Relevant source: `README.md`.
-
 Adopted:
 
-- machine-readable JSON results
-- explicit preparation and optional measurement stages
-- report elapsed time rather than making unsupported performance claims
-- keep benchmark parameters visible and reproducible
+- machine-readable versioned JSON results
+- visible benchmark parameters and reproducibility metadata
+- timing reports without universal performance claims
+- output files that are explicit artifacts rather than hidden state
 
-Not adopted:
-
-- arbitrary shell commands, statistical multi-run orchestration, cache-clearing commands, or external runtime dependencies
+Not adopted: arbitrary shell commands, statistical multi-run orchestration, cache-clearing commands, or external runtime dependencies.
 
 ## Resulting decision
 
-The useful product is a local protocol/performance benchmark, not a hosted commit-count stunt. The repository now provides a bounded import, exact verification, integrity checks, no remotes, no push path, and an auditable result report.
+The useful product is a local protocol benchmark, not a hosted commit-count stunt. The current design combines a fixed cap, disposable repository, sanitized Git environment, deterministic SHA-1 history fingerprint, integrity checks, zero remotes, no push path, and exclusive machine-readable reports.
