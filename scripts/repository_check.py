@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when active code regains hosted-push or unbounded history behavior."""
+"""Fail when active code regains hosted-push, unbounded, or sandbox-bypass behavior."""
 
 from __future__ import annotations
 
@@ -42,6 +42,25 @@ if not match:
     findings.append("commit_cannon/stream.py: MAX_COMMITS hard cap is missing")
 elif int(match.group(1).replace("_", "")) > 100_000:
     findings.append("commit_cannon/stream.py: MAX_COMMITS exceeds 100,000")
+
+benchmark = (ROOT / "commit_cannon" / "benchmark.py").read_text(encoding="utf-8")
+if "os.environ.copy()" in benchmark:
+    findings.append("commit_cannon/benchmark.py: child Git must not inherit the full parent environment")
+for required in (
+    "_ENV_ALLOWLIST",
+    '"GIT_CONFIG_GLOBAL": os.devnull',
+    '"GIT_CONFIG_NOSYSTEM": "1"',
+    '"init", "--quiet", "--object-format=sha1"',
+    '"rev-parse", "--show-object-format"',
+    "tip_oid",
+):
+    if required not in benchmark:
+        findings.append(f"commit_cannon/benchmark.py: missing sandbox/fingerprint contract: {required}")
+
+cli = (ROOT / "commit_cannon" / "cli.py").read_text(encoding="utf-8")
+for required in ("os.O_EXCL", "O_NOFOLLOW", "report path already exists", "outside the kept benchmark repository"):
+    if required not in cli:
+        findings.append(f"commit_cannon/cli.py: missing exclusive report contract: {required}")
 
 runner = (ROOT / "run.sh").read_text(encoding="utf-8")
 if "python3 -m commit_cannon.cli" not in runner:
