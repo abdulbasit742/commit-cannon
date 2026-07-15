@@ -63,9 +63,24 @@ for required in (
         findings.append(f"commit_cannon/benchmark.py: missing sandbox/fingerprint/timeout contract: {required}")
 
 cli = (ROOT / "commit_cannon" / "cli.py").read_text(encoding="utf-8")
-for required in ("os.O_EXCL", "O_NOFOLLOW", "report path already exists", "outside the kept benchmark repository"):
+for required in (
+    "os.O_EXCL",
+    "O_NOFOLLOW",
+    "report path already exists",
+    "outside the kept benchmark repository",
+    "_run_with_atomic_keep",
+    ".commit-cannon-stage-",
+    "_rename_noreplace",
+    "renameat2",
+    "RENAME_NOREPLACE",
+    "renamex_np",
+    "RENAME_EXCL",
+    "must not already exist",
+    "must not traverse symbolic links",
+    "report_path.unlink(missing_ok=True)",
+):
     if required not in cli:
-        findings.append(f"commit_cannon/cli.py: missing exclusive report contract: {required}")
+        findings.append(f"commit_cannon/cli.py: missing exclusive report/atomic publish contract: {required}")
 
 runner = (ROOT / "run.sh").read_text(encoding="utf-8")
 if "python3 -m commit_cannon.cli" not in runner:
