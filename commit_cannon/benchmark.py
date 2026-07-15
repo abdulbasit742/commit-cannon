@@ -6,8 +6,10 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -47,6 +49,7 @@ class BenchmarkResult:
 
 
 _ENV_ALLOWLIST = ("PATH", "PATHEXT", "SYSTEMROOT", "COMSPEC", "WINDIR", "TMP", "TEMP", "TMPDIR")
+_MAX_STDERR_BYTES = 64 * 1024
 
 
 def _safe_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -120,41 +123,105 @@ def _validate_keep_path(path: Path, source_root: Path) -> Path:
     return destination
 
 
-def _import_stream(repo: Path, *, count: int, branch: str, timeout_seconds: int) -> None:
+def _terminate_process(process: subprocess.Popen[bytes]) -> None:
+    """Terminate the isolated fast-import process and wait for pipe closure."""
+
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError:
+        pass
+    finally:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
+def _append_bounded(buffer: bytearray, chunk: bytes) -> None:
+    buffer.extend(chunk)
+    if len(buffer) > _MAX_STDERR_BYTES:
+        del buffer[:-_MAX_STDERR_BYTES]
+
+
+def _import_stream(repo: Path, *, count: int, branch: str, timeout_seconds: float) -> None:
+    """Feed fast-import while one deadline covers both writing and importing."""
+
+    popen_options: dict[str, Any] = {}
+    if os.name == "posix":
+        popen_options["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
     try:
         process = subprocess.Popen(
             ["git", "fast-import", "--done", "--quiet"],
             cwd=repo,
             env=_safe_environment(),
             stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            **popen_options,
         )
     except FileNotFoundError as error:
         raise BenchmarkError("git is required but was not found") from error
 
     assert process.stdin is not None
-    try:
-        write_fast_import_stream(process.stdin, count=count, branch=branch)
-        process.stdin.close()
-        process.wait(timeout=timeout_seconds)
-    except (BrokenPipeError, subprocess.TimeoutExpired) as error:
-        process.kill()
-        process.wait()
-        raise BenchmarkError("git fast-import failed or timed out") from error
-    finally:
-        if process.stdin and not process.stdin.closed:
-            process.stdin.close()
+    assert process.stderr is not None
+    writer_errors: list[BaseException] = []
+    stderr_buffer = bytearray()
 
-    stdout = process.stdout.read() if process.stdout else b""
-    stderr_bytes = process.stderr.read() if process.stderr else b""
-    if process.stdout:
-        process.stdout.close()
-    if process.stderr:
-        process.stderr.close()
-    stderr = stderr_bytes.decode("utf-8", errors="replace")
+    def stream_writer() -> None:
+        try:
+            write_fast_import_stream(process.stdin, count=count, branch=branch)
+        except BaseException as error:  # propagated on the controlling thread
+            writer_errors.append(error)
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+
+    def stderr_reader() -> None:
+        try:
+            while chunk := process.stderr.read(4096):
+                _append_bounded(stderr_buffer, chunk)
+        finally:
+            process.stderr.close()
+
+    writer_thread = threading.Thread(target=stream_writer, name="commit-cannon-writer", daemon=True)
+    stderr_thread = threading.Thread(target=stderr_reader, name="commit-cannon-stderr", daemon=True)
+    writer_thread.start()
+    stderr_thread.start()
+
+    try:
+        process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as error:
+        _terminate_process(process)
+        writer_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        raise BenchmarkError(
+            f"git fast-import timed out after {timeout_seconds} seconds while streaming or importing"
+        ) from error
+
+    writer_thread.join(timeout=5)
+    stderr_thread.join(timeout=5)
+    if writer_thread.is_alive() or stderr_thread.is_alive():
+        _terminate_process(process)
+        raise BenchmarkError("fast-import worker threads did not stop cleanly")
+
+    detail = bytes(stderr_buffer).decode("utf-8", errors="replace").strip()
+    if writer_errors:
+        error = writer_errors[0]
+        if process.returncode != 0 and detail:
+            raise BenchmarkError(detail) from error
+        raise BenchmarkError(f"unable to write fast-import stream: {error}") from error
     if process.returncode != 0:
-        detail = stderr.strip() or stdout.decode("utf-8", errors="replace").strip()
         raise BenchmarkError(detail or "git fast-import failed")
 
 
