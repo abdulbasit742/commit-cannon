@@ -13,6 +13,8 @@ This repository **does not push commits, add remotes, force-update branches, or 
 - an existing non-empty output directory is never overwritten
 - child Git processes receive an allowlisted environment; caller `GIT_DIR`, work-tree, alternate-object, credential, and global-config settings are not inherited
 - repositories are explicitly initialized with SHA-1 for comparable deterministic fingerprints
+- the operation timeout covers both Python stream production and Git import; a timed-out isolated process group is terminated
+- Git stderr is drained concurrently and retained only in a bounded 64 KiB diagnostic buffer
 - JSON reports are created exclusively and never replace existing files or live inside a kept benchmark repository
 - no `git push`, remote creation, `--force`, shell execution, or hosted-service target exists in active code
 - `git fsck`, exact commit-count verification, object-format validation, tip-object validation, and zero-remote verification run before success
@@ -48,9 +50,12 @@ Useful options:
 
 # Use a nested benchmark-only ref
 ./run.sh --count 2500 --branch benchmark/python-3.12
+
+# Bound each Git operation, including stream delivery
+./run.sh --count 2500 --timeout 60
 ```
 
-`--keep` must point to a new or empty non-symlink directory outside this source tree. The generated repository has no remotes. A `--json` path must be new and outside any kept repository.
+`--keep` must point to a new or empty non-symlink directory outside this source tree. The generated repository has no remotes. A `--json` path must be new and outside any kept repository. `--timeout` accepts 5–600 seconds.
 
 ## Report fields
 
@@ -84,7 +89,7 @@ python /path/to/commit-cannon/generate.py 100 --branch benchmark/manual \
 git rev-list --count refs/heads/benchmark/manual
 ```
 
-The frontend emits a terminating `done` directive, enforces the same hard cap, and only permits benchmark refs. It does not invoke Git or access the network itself.
+The frontend emits a terminating `done` directive, enforces the same hard cap, and only permits benchmark refs. It does not invoke Git or access the network itself. The standalone pipeline is operator-managed; use the CLI when you need the enforced timeout and integrity checks.
 
 ## Verification
 
@@ -97,7 +102,7 @@ python3 scripts/repository_check.py
 ./run.sh --count 25 --json benchmark-report.json
 ```
 
-The current suite contains 16 regression tests, including hostile Git-environment and report-clobber cases.
+The current suite contains 17 regression tests, including hostile Git-environment, report-clobber, and stalled-stream timeout cases.
 
 ## Design references
 
