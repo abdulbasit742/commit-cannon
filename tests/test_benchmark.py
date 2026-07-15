@@ -1,23 +1,66 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from commit_cannon.benchmark import BenchmarkError, run_benchmark
+from commit_cannon.benchmark import BenchmarkError, _safe_environment, run_benchmark
 from commit_cannon.cli import main
 
 
 class BenchmarkTests(unittest.TestCase):
-    def test_local_benchmark_imports_exact_count(self) -> None:
+    def test_local_benchmark_imports_exact_count_and_fingerprint(self) -> None:
         result = run_benchmark(count=7, timeout_seconds=30)
         self.assertEqual(result.count, 7)
         self.assertEqual(result.integrity, "passed")
         self.assertEqual(result.remote_count, 0)
-        self.assertIsNone(result.kept_repository)
-        self.assertGreater(result.repository_size_bytes, 0)
+        self.assertEqual(result.object_format, "sha1")
+        self.assertRegex(result.tip_oid, r"^[0-9a-f]{40}$")
+        self.assertEqual(result.schema_version, 2)
+
+    def test_git_environment_drops_repository_routing_variables(self) -> None:
+        environment = _safe_environment(
+            {
+                "PATH": os.environ.get("PATH", ""),
+                "GIT_DIR": "/tmp/attacker.git",
+                "GIT_WORK_TREE": "/tmp/attacker",
+                "GIT_OBJECT_DIRECTORY": "/tmp/objects",
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/tmp/alternate",
+                "GIT_CONFIG_GLOBAL": "/tmp/attacker-config",
+                "HOME": "/tmp/attacker-home",
+            }
+        )
+        for key in (
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "HOME",
+        ):
+            self.assertNotIn(key, environment)
+        self.assertEqual(environment["GIT_CONFIG_GLOBAL"], os.devnull)
+
+    def test_hostile_git_environment_cannot_redirect_benchmark(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            outside = Path(temporary) / "outside.git"
+            subprocess.run(
+                ["git", "init", "--bare", "--quiet", str(outside)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            before = sorted(path.relative_to(outside) for path in outside.rglob("*"))
+            with patch.dict(
+                os.environ,
+                {"GIT_DIR": str(outside), "GIT_WORK_TREE": str(Path(temporary) / "work")},
+                clear=False,
+            ):
+                result = run_benchmark(count=3, timeout_seconds=30)
+            self.assertEqual(result.count, 3)
+            self.assertEqual(sorted(path.relative_to(outside) for path in outside.rglob("*")), before)
 
     def test_kept_repository_has_no_remote(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -35,9 +78,8 @@ class BenchmarkTests(unittest.TestCase):
                 cwd=destination,
                 text=True,
             ).strip()
-            remotes = subprocess.check_output(["git", "remote"], cwd=destination, text=True).strip()
             self.assertEqual(count, "5")
-            self.assertEqual(remotes, "")
+            self.assertEqual(subprocess.check_output(["git", "remote"], cwd=destination, text=True).strip(), "")
 
     def test_non_empty_keep_directory_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -54,22 +96,28 @@ class BenchmarkTests(unittest.TestCase):
             run_benchmark(count=2, keep_repository=source_root / "nested-output", source_root=source_root)
 
     def test_repack_is_explicit_and_reported(self) -> None:
-        result = run_benchmark(count=3, repack=True, timeout_seconds=30)
-        self.assertTrue(result.repacked)
+        self.assertTrue(run_benchmark(count=3, repack=True, timeout_seconds=30).repacked)
 
-    def test_cli_writes_machine_readable_report(self) -> None:
+    def test_cli_writes_machine_readable_report_once(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             report = Path(temporary) / "report.json"
-            exit_code = main(["--count", "4", "--json", str(report)])
-            self.assertEqual(exit_code, 0)
+            self.assertEqual(main(["--count", "4", "--json", str(report)]), 0)
             payload = json.loads(report.read_text(encoding="utf-8"))
             self.assertEqual(payload["count"], 4)
-            self.assertEqual(payload["remote_count"], 0)
-            self.assertEqual(payload["integrity"], "passed")
+            self.assertEqual(payload["object_format"], "sha1")
+            original = report.read_text(encoding="utf-8")
+            self.assertEqual(main(["--count", "2", "--json", str(report)]), 2)
+            self.assertEqual(report.read_text(encoding="utf-8"), original)
+
+    def test_report_cannot_be_written_inside_kept_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            keep = Path(temporary) / "kept"
+            report = keep / "report.json"
+            self.assertEqual(main(["--count", "2", "--keep", str(keep), "--json", str(report)]), 2)
+            self.assertFalse(keep.exists())
 
     def test_cli_rejects_over_cap_without_running_git(self) -> None:
-        exit_code = main(["--count", "100001"])
-        self.assertEqual(exit_code, 2)
+        self.assertEqual(main(["--count", "100001"]), 2)
 
 
 if __name__ == "__main__":
