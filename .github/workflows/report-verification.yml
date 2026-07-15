@@ -1,0 +1,38 @@
+name: verify kept repository report
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Create and verify a kept benchmark repository
+        run: |
+          publish_root="$(mktemp -d)"
+          destination="$publish_root/repository"
+          report="$publish_root/report.json"
+          ./run.sh --count 9 --branch benchmark/report-check --keep "$destination" --json "$report" >/dev/null
+          python -m commit_cannon.verify "$report" --repository "$destination" > "$publish_root/verification.json"
+          python - "$report" "$publish_root/verification.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          verification = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+          assert verification["verified"] is True
+          assert verification["count"] == report["count"]
+          assert verification["branch"] == report["branch"]
+          assert verification["tip_oid"] == report["tip_oid"]
+          assert verification["remote_count"] == 0
+          PY
