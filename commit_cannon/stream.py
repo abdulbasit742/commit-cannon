@@ -13,11 +13,7 @@ _FORBIDDEN_REF_CHARS = set(" ~^:?*[\\")
 
 
 def validate_count(value: int) -> int:
-    """Return a validated commit count.
-
-    The hard cap is intentionally not configurable. This project is a local
-    benchmark, not a hosted-service load generator.
-    """
+    """Return a validated commit count under the fixed local benchmark cap."""
 
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("count must be an integer")
@@ -64,33 +60,30 @@ def write_fast_import_stream(
 
     count = validate_count(count)
     branch = validate_branch(branch)
+    if isinstance(flush_every, bool) or not isinstance(flush_every, int):
+        raise TypeError("flush_every must be an integer")
     if flush_every < 1 or flush_every > MAX_COMMITS:
         raise ValueError(f"flush_every must be between 1 and {MAX_COMMITS:,}")
-    if not isinstance(start_timestamp, int) or start_timestamp < 0:
+    if isinstance(start_timestamp, bool) or not isinstance(start_timestamp, int) or start_timestamp < 0:
         raise ValueError("start_timestamp must be a non-negative integer")
 
     ref = f"refs/heads/{branch}".encode("utf-8")
     buffer = bytearray()
-
     for index in range(1, count + 1):
         message = f"benchmark commit {index}\n".encode("utf-8")
         buffer.extend(b"commit " + ref + b"\n")
         buffer.extend(f"mark :{index}\n".encode("ascii"))
         buffer.extend(
-            f"committer commit-cannon <benchmark@example.invalid> {start_timestamp + index - 1} +0000\n".encode(
-                "ascii"
-            )
+            f"committer commit-cannon <benchmark@example.invalid> {start_timestamp + index - 1} +0000\n".encode("ascii")
         )
         buffer.extend(f"data {len(message)}\n".encode("ascii"))
         buffer.extend(message)
         if index > 1:
             buffer.extend(f"from :{index - 1}\n".encode("ascii"))
         buffer.extend(b"\n")
-
         if index % flush_every == 0:
             output.write(buffer)
             buffer.clear()
-
     buffer.extend(b"done\n")
     output.write(buffer)
     output.flush()
