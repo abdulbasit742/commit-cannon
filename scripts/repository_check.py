@@ -99,6 +99,25 @@ for prohibited in ("subprocess.Popen", "subprocess.run", "write_text(", "unlink(
     if prohibited in verify:
         findings.append(f"commit_cannon/verify.py: verifier must remain read-only: {prohibited}")
 
+suite = (ROOT / "commit_cannon" / "suite.py").read_text(encoding="utf-8")
+for required in (
+    "MAX_RUNS = 9",
+    "MAX_WARMUPS = 3",
+    "MAX_SUITE_COMMITS = 300_000",
+    '"keep_repository": None',
+    "statistics.median",
+    "statistics.pstdev",
+    "os.O_EXCL",
+    "O_NOFOLLOW",
+    "deterministic benchmark tip changed",
+    "Git version changed",
+    "suite report path already exists",
+):
+    if required not in suite:
+        findings.append(f"commit_cannon/suite.py: missing bounded statistical suite contract: {required}")
+if "subprocess" in suite:
+    findings.append("commit_cannon/suite.py: suite must delegate to the reviewed benchmark runner")
+
 runner = (ROOT / "run.sh").read_text(encoding="utf-8")
 if "python3 -m commit_cannon.cli" not in runner:
     findings.append("run.sh: must delegate to the reviewed Python CLI")
