@@ -2,42 +2,45 @@
 
 ## Scope
 
-These instructions apply to the entire `abdulbasit742/commit-cannon` repository. More specific AGENTS.md or AGENTS.override.md files in subdirectories may refine them.
+These instructions apply to the entire `abdulbasit742/commit-cannon` repository.
 
-Project: **commit-cannon**.
+Project: a dependency-free, bounded **local Git fast-import benchmark**.
 
-Detected root stack: **Documentation or source repository without a supported root package manifest**.
+## Trust boundary
 
-## Working method
+- `commit_cannon/stream.py` validates counts/refs and emits the protocol stream.
+- `commit_cannon/benchmark.py` owns disposable repository creation, Git execution, verification, and cleanup.
+- `commit_cannon/cli.py` exposes reviewed options only.
+- `generate.py` is a compatibility stream frontend; it must retain the same cap and benchmark-only ref policy.
+- `run.sh` must only delegate to the Python CLI.
 
-1. Read README.md, the relevant manifests, and nearby tests before editing.
-2. Check the current diff and preserve unrelated user changes.
-3. Make the smallest coherent change that solves the task; follow existing names, patterns, and directory boundaries.
-4. Do not hand-edit generated, vendored, dependency, build-output, model-weight, or dataset files unless the task explicitly targets them.
-5. Update tests and documentation when behavior, configuration, public APIs, or setup steps change.
+## Verified commands
 
-## Commands
+```bash
+python3 -m compileall -q commit_cannon generate.py scripts tests
+PYTHONWARNINGS=error::ResourceWarning python3 -m unittest discover -s tests -p 'test_*.py' -v
+bash -n run.sh
+python3 scripts/repository_check.py
+./run.sh --count 25 --json benchmark-report.json
+```
 
-- Read README.md and inspect nested directories for package.json, pyproject.toml, requirements.txt, Dockerfiles, Makefiles, or service-specific instructions.
-- Do not invent build, test, deployment, or migration commands. Record newly verified commands in README.md or a nested AGENTS.md.
+## Working rules
 
-## Verification
-
-- Run the narrowest relevant test first, then the repository's available lint, type-check, test, and build commands.
-- Never report a check as passed unless it was actually run. State skipped checks and the concrete reason.
-- For UI changes, verify loading, empty, error, and success states plus keyboard access and responsive layout.
-- For API or persistence changes, verify validation, authorization, failure behavior, and backward compatibility.
-
-## Security and side effects
-
-- Never commit secrets, tokens, passwords, private keys, production data, or populated environment files. Use documented environment variables and sanitized examples.
-- Treat migrations, deployments, billing, live network calls, account changes, destructive Git operations, and external messages as side effects. Do not perform them without explicit task authorization.
-- Validate untrusted input at trust boundaries and avoid logging credentials, personal data, prompts containing secrets, or raw third-party payloads.
-- High-volume Git operations: never start commit-generation loops, rewrite large histories, or consume substantial compute/storage without explicit confirmation of limits and a disposable test target.
+1. Keep runtime dependencies at zero unless a concrete benchmark requirement justifies one.
+2. Never add `git push`, remote creation, force-updates, hosted-service targets, or automatic publication.
+3. Never make the hard cap configurable through CLI flags, environment variables, config files, or hidden constants.
+4. Keep generated refs inside `benchmark` or `benchmark/...`.
+5. Never run against the source repository, a non-empty directory, or an operator's existing repository.
+6. Use argument arrays for subprocesses; do not enable shell execution.
+7. Verify exact commit count, zero remotes, and repository integrity before reporting success.
+8. Keep CI counts small and local. Do not run resource-intensive benchmarks in CI.
+9. Update tests, scanner, README, and audit documentation when the safety contract changes.
 
 ## Completion checklist
 
-- The requested behavior is implemented with a focused diff.
-- Relevant automated checks pass, or any unavailable checks are clearly identified.
-- No secrets, generated artifacts, or unrelated formatting churn were introduced.
-- The final handoff summarizes changed files, verification evidence, risks, and any follow-up work.
+- all 12+ regression tests pass with `ResourceWarning` treated as an error
+- Python and shell syntax checks pass
+- repository safety scanner passes
+- smoke report shows `integrity: passed` and `remote_count: 0`
+- no generated repository or report is committed
+- no hosted or destructive Git path is introduced
