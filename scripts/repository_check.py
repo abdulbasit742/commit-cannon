@@ -118,6 +118,24 @@ for required in (
 if "subprocess" in suite:
     findings.append("commit_cannon/suite.py: suite must delegate to the reviewed benchmark runner")
 
+compare = (ROOT / "commit_cannon" / "compare.py").read_text(encoding="utf-8")
+for required in (
+    "MAX_REPORT_BYTES = 1_000_000",
+    "COMPARABLE_FIELDS",
+    "max_slowdown_percent",
+    "max_cv_percent",
+    "reports are not comparable",
+    "reports are too noisy to compare",
+    "report path must not be a symbolic link",
+    'status="regressed" if regressed else "passed"',
+    "return 1 if result.status == \"regressed\" else 0",
+):
+    if required not in compare:
+        findings.append(f"commit_cannon/compare.py: missing read-only comparison contract: {required}")
+for prohibited in ("subprocess", "write_text(", "unlink(", "rmtree(", "os.remove", "os.replace"):
+    if prohibited in compare:
+        findings.append(f"commit_cannon/compare.py: comparator must remain read-only: {prohibited}")
+
 runner = (ROOT / "run.sh").read_text(encoding="utf-8")
 if "python3 -m commit_cannon.cli" not in runner:
     findings.append("run.sh: must delegate to the reviewed Python CLI")
