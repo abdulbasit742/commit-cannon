@@ -51,6 +51,12 @@ class StreamTests(unittest.TestCase):
         write_fast_import_stream(output, count=5, flush_every=2)
         self.assertEqual(output.writes, 3)
 
+    def test_bool_flush_and_timestamp_are_rejected(self) -> None:
+        with self.assertRaises(TypeError):
+            write_fast_import_stream(io.BytesIO(), count=1, flush_every=True)
+        with self.assertRaises(ValueError):
+            write_fast_import_stream(io.BytesIO(), count=1, start_timestamp=True)
+
 
 if __name__ == "__main__":
     unittest.main()
